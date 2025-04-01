@@ -3,14 +3,10 @@ Menu Image Processing & Optimization
 
 ## Purpose of the Tool
 
-This tool is designed to process and optimize images automatically, following specific [**JET Guidelines Doc**](https://drive.google.com/file/d/1c7TgkK18QXiE0n0Qx1ny8tw55TfUwiTD/view?usp=sharing) to ensure quality and consistency. It is particularly useful for Operations teams that may need to manage large quantities of images.
-
- - [**Presentation**](https://docs.google.com/presentation/d/16Jr2LG2cGXRrG8V3xEsJA12BA7F8vC3Cli6PhlfpXN0/edit?usp=sharing)
- - [**Demo Video**](https://drive.google.com/file/d/11RbDLvVfI1Ef95PEysqVc9EGQtAqnm4O/view?usp=sharing)
-
+This tool is designed to process and optimize images automatically
 ## Main Functionalities
 
-  -  **Automatic Orientation Correction**: Detects and corrects image orientation based on EXIF metadata, preventing incorrectly rotated images.
+  - **Automatic Orientation Correction**: Detects and corrects image orientation based on EXIF metadata, preventing incorrectly rotated images.
   - **Background Removal**: Uses advanced algorithms to remove the background and create images with transparency (PNG format), ideal for professional presentations.
   - **Main Object Detection**: Employs YOLOv3 (an artificial intelligence model) to identify the main object in the image and crop the image around it.
   - **Size Optimization**: Reduces file size without compromising quality, ensuring that images are smaller than 10 MB and in JPEG or PNG format.
