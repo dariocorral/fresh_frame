@@ -1,0 +1,29 @@
+[project]
+name = "fresh-frame"
+version = "0.1.0"
+description = "Automated photo editing tool to meet JET requirements"
+authors =  [{ name = "eduardo-corralmorale", email = "dario.corral@justeattakeaway.com" }]
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "numpy<2.0",
+    "opencv-contrib-python>=4.11.0.86,<5.0.0",
+    "pillow>=11.1.0,<12.0.0",
+    "rembg>=2.0.63,<3.0.0",
+    "onnxruntime==1.16.3",
+     "pillow-heif>=0.21.0,<1.0.0",
+]
+scripts = {"image_process" = "fresh_frame.main:main"}
+license = {text = "MIT"} 
+
+[project.optional-dependencies]
+dev = []
+
+[tool.poetry]
+packages = [
+    { include = "fresh_frame", from = "src" }
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
