@@ -12,6 +12,7 @@ dependencies = [
     "rembg>=2.0.63,<3.0.0",
     "onnxruntime==1.16.3",
      "pillow-heif>=0.21.0,<1.0.0",
+     "pytesseract (>=0.3.13,<0.4.0)",
 ]
 scripts = {"image_process" = "fresh_frame.main:main"}
 license = {text = "MIT"} 

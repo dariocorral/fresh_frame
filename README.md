@@ -19,19 +19,24 @@ This tool is designed to process and optimize images automatically
 1. **Download `yolov3.weights`**  
    Download the file from the [official YOLOv3 weights](https://github.com/patrick013/Object-Detection---Yolov3/blob/master/model/yolov3.weights) and place it in your project's **root directory**.
 
-2. **Install dependencies**  
+2.**Install Tesseract OCR**
+   ```bash
+   sudo apt install tesseract-ocr
+   ```
+
+3. **Install dependencies**  
    Install dependencies using Poetry:
    ```bash
    poetry install
    ```
 
-3. **Process images**  
+4. **Process images**  
    Run the following command to process all images in the `input_images` folder:
    ```bash
    poetry run image_process
    ```
 
-4. **View results**  
+5. **View results**  
    Processed images will be saved to the `processed_images` folder.
 
 ---
@@ -50,4 +55,5 @@ This tool is designed to process and optimize images automatically
   - **Pillow**: For managing image formats and EXIF metadata.
   - **Rembg**: For background removal with high-quality results.
   - **Pillow-HEIC**: For supporting HEIC files (common on Apple devices).
+  - **Tesseract OCR**: For removing Text
 

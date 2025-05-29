@@ -5,6 +5,7 @@ from PIL import Image, ExifTags
 from rembg import remove
 from pillow_heif import register_heif_opener
 import traceback
+import pytesseract # Added import
 
 register_heif_opener()  # Enable HEIC support in Pillow
 
@@ -15,6 +16,9 @@ class ImageProcessor:
         self.img_pil = None
         self.img_cv2 = None
         self.original_img_cv2_for_color_sampling = None
+        # Add yolo_config and yolo_weights paths to the constructor
+        self.yolo_config_path = "yolov3.cfg" # Default, can be overridden
+        self.yolo_weights_path = "yolov3.weights" # Default, can be overridden
         try:
             # Step 1: Open image with Pillow
             img_pil_opened = Image.open(image_path)
@@ -99,6 +103,119 @@ class ImageProcessor:
             print(f"Error during PIL to CV2 conversion: {e}")
             traceback.print_exc()
             return None
+
+    def remove_text_objects(self, confidence_threshold=60, inpaint_radius=5, padding=2, tesseract_config='--psm 11'):
+        """Attempts to detect and remove text from self.img_cv2 using OCR and inpainting."""
+        if self.img_cv2 is None:
+            print("Skipping text removal: Image not loaded.")
+            return
+
+        print("Attempting to detect and remove text...")
+        img_for_ocr_processing = self.img_cv2.copy()
+        
+        # Ensure image is BGR for Tesseract and inpainting
+        original_alpha = None
+        if img_for_ocr_processing.shape[2] == 4: # BGRA
+            original_alpha = img_for_ocr_processing[:, :, 3].copy()
+            img_bgr_for_ocr = cv2.cvtColor(img_for_ocr_processing, cv2.COLOR_BGRA2BGR)
+        elif img_for_ocr_processing.shape[2] == 3: # BGR
+            img_bgr_for_ocr = img_for_ocr_processing
+        else:
+            print("Warning: Text removal requires 3 or 4 channel image.")
+            return
+
+        # Convert BGR to RGB for pytesseract
+        img_rgb_for_tesseract = cv2.cvtColor(img_bgr_for_ocr, cv2.COLOR_BGR2RGB)
+
+        # --- Preprocessing for OCR ---
+        # Convert to grayscale for thresholding
+        gray_for_ocr = cv2.cvtColor(img_rgb_for_tesseract, cv2.COLOR_RGB2GRAY)
+        
+        # Apply adaptive thresholding
+        # Block size and C value might need tuning depending on image characteristics and text size
+        # A larger block size can help with uneven illumination.
+        # C is a constant subtracted from the mean or weighted sum.
+        thresh_for_ocr = cv2.adaptiveThreshold(gray_for_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                               cv2.THRESH_BINARY_INV, 11, 2) # block_size=11, C=2
+        # You might want to experiment with THRESH_BINARY instead of THRESH_BINARY_INV
+        # depending on whether text is darker or lighter than background.
+        # For Tesseract, typically white text on black background (THRESH_BINARY_INV if text is dark on light)
+        # or black text on white background (THRESH_BINARY if text is dark on light, then invert if needed by Tesseract)
+        # Tesseract generally prefers black text on a white background.
+        # If your original text is dark on a light background, THRESH_BINARY will make text black, background white.
+        # If original text is light on a dark background, THRESH_BINARY_INV will make text black, background white.
+        # Let's assume text is darker than its immediate background, so THRESH_BINARY is a good start.
+        # If Tesseract expects black text on white, and adaptiveThreshold gives white text on black, invert it.
+        # if np.mean(thresh_for_ocr) < 128: # Heuristic: if mostly black, text was likely light
+        #    thresh_for_ocr = cv2.bitwise_not(thresh_for_ocr)
+        # For simplicity, let's try one version first. Gaussian with INV is common.
+
+        print(f"Using Tesseract config: '{tesseract_config}'")
+        try:
+            data = pytesseract.image_to_data(thresh_for_ocr, output_type=pytesseract.Output.DICT, config=tesseract_config)
+        except pytesseract.TesseractNotFoundError:
+            print("Error: Tesseract OCR is not installed or not found in your system's PATH.")
+            print("Please install Tesseract OCR: https://github.com/tesseract-ocr/tesseract")
+            print("Skipping text removal for this image.")
+            return
+        except Exception as e:
+            print(f"Error during Tesseract OCR processing: {e}")
+            traceback.print_exc()
+            return
+
+        mask = np.zeros(img_bgr_for_ocr.shape[:2], dtype=np.uint8)
+        num_boxes = len(data['level'])
+        text_regions_found = False
+
+        print(f"Tesseract processing {num_boxes} potential text boxes. Min confidence for removal: {confidence_threshold}")
+        for i in range(num_boxes):
+            conf = int(data['conf'][i])
+            text = data['text'][i].strip()
+            (x, y, w, h) = (data['left'][i], data['top'][i], data['width'][i], data['height'][i])
+
+            # Log every detected box's details
+            print(f"  Box {i+1}/{num_boxes}: Text='{text}', Confidence={conf}, Coords=({x},{y},{w},{h})")
+
+            if not text: # Skip if text is empty
+                # print(f"    - Skipping Box {i+1}: Empty text.") # Optional: for very verbose logging
+                continue
+
+            is_alnum = any(c.isalnum() for c in text)
+            if not is_alnum:
+                print(f"    - Skipping Box {i+1} ('{text}'): Not alphanumeric.")
+                continue
+            
+            if conf <= confidence_threshold:
+                print(f"    - Skipping Box {i+1} ('{text}'): Confidence {conf} <= threshold {confidence_threshold}.")
+                continue
+
+            # If we reach here, the text is valid and confident enough to be removed
+            print(f"    - Adding Box {i+1} ('{text}') to mask for removal.")
+            cv2.rectangle(mask, 
+                          (max(0, x - padding), max(0, y - padding)), 
+                          (min(img_bgr_for_ocr.shape[1], x + w + padding), min(img_bgr_for_ocr.shape[0], y + h + padding)), 
+                          255, 
+                          -1)
+            text_regions_found = True
+
+
+        if not text_regions_found:
+            print("No significant text regions found for removal.")
+            return
+
+        print("Applying inpainting to remove detected text regions...")
+        inpainted_img_bgr = cv2.inpaint(img_bgr_for_ocr, mask, inpaint_radius, cv2.INPAINT_TELEA)
+
+        if original_alpha is not None: # Original image was BGRA
+            # Create the new alpha channel: original alpha, but opaque (255) where inpainting occurred
+            final_alpha = np.where(mask == 255, 255, original_alpha)
+            self.img_cv2 = cv2.cvtColor(inpainted_img_bgr, cv2.COLOR_BGR2BGRA)
+            self.img_cv2[:, :, 3] = final_alpha
+        else: # Original image was BGR
+            self.img_cv2 = inpainted_img_bgr
+        
+        print("Text removal process finished.")
+
 
     def is_image_in_focus(self, threshold=100):
         if self.img_cv2 is None: return False, None
@@ -252,7 +369,7 @@ class ImageProcessor:
         print(f"Could not save image {target_output_path} successfully according to criteria.")
         return False
 
-    def detect_object_yolo(self, config_path="yolov3.cfg", weights_path="yolov3.weights"):
+    def detect_object_yolo(self): # Removed config_path and weights_path from parameters
         """Detects the largest object by area using YOLOv3"""
         if self.img_cv2 is None: return None, None
         try:
@@ -260,7 +377,13 @@ class ImageProcessor:
             if image_for_yolo.shape[2] == 4:
                 image_for_yolo = cv2.cvtColor(image_for_yolo, cv2.COLOR_BGRA2BGR)
 
-            net = cv2.dnn.readNetFromDarknet(config_path, weights_path)
+            # Use instance attributes for YOLO paths
+            if not os.path.exists(self.yolo_config_path) or not os.path.exists(self.yolo_weights_path):
+                print(f"Error: YOLO config ('{self.yolo_config_path}') or weights ('{self.yolo_weights_path}') not found.")
+                print("Skipping YOLO detection.")
+                return None, None
+                
+            net = cv2.dnn.readNetFromDarknet(self.yolo_config_path, self.yolo_weights_path)
             ln = net.getLayerNames()
             try: ln = [ln[i - 1] for i in net.getUnconnectedOutLayers()]
             except TypeError: ln = [ln[i[0] - 1] for i in net.getUnconnectedOutLayers()]
@@ -400,7 +523,7 @@ class ImageProcessor:
             return None, False
 
 
-    def process_image(self, yolo_confidence_threshold=0.7): # Confidence threshold
+    def process_image(self, yolo_confidence_threshold=0.7, text_removal_confidence_threshold=50): # Added text_removal_confidence_threshold
         if self.img_cv2 is None:
             print(f"Skipping processing for {self.image_path}: Image could not be loaded.")
             return
@@ -423,7 +546,23 @@ class ImageProcessor:
             print("-- Applying Autocorrect Lighting --")
             self.auto_correct_lighting() # Modifies self.img_cv2
 
-        # --- Quality Checks (Run BEFORE BG Removal or Cropping/Padding) ---
+        # --- NEW: Text Removal ---
+        # Ensure img_cv2 is not None after auto_correct_lighting before proceeding
+        if self.img_cv2 is not None:
+            print("-- Attempting to remove text from image --")
+            # Try PSM 11 for sparse text, or 7 for a single line of text.
+            # You can also add other Tesseract configs here, e.g. '-c tessedit_char_whitelist=0123456789'
+            # if you only want to detect numbers.
+            tess_config = '--psm 11' 
+            self.remove_text_objects(
+                confidence_threshold=text_removal_confidence_threshold,
+                tesseract_config=tess_config
+            ) 
+        else:
+            print("Skipping text removal as image is None after lighting correction.")
+
+
+        # --- Quality Checks (Run AFTER Text Removal, BEFORE BG Removal or Cropping/Padding) ---
         bbox = None # Default to None
         confidence = 0.0 # Default to 0.0
         if self.img_cv2 is not None:
@@ -447,6 +586,9 @@ class ImageProcessor:
             return # Cannot proceed if image became None after corrections
 
         # --- Store image state AFTER corrections/checks but BEFORE splitting paths ---
+        if self.img_cv2 is None: # Check if image became None (e.g. after text removal attempt)
+            print(f"Image is None after pre-processing steps for {self.image_path}. Skipping further processing.")
+            return
         img_state_before_processing = self.img_cv2.copy()
 
         # === Define Transformation Parameters ===
@@ -567,6 +709,9 @@ class BatchImageProcessor:
         self.input_folder = input_folder
         self.output_folder = output_folder
         os.makedirs(self.output_folder, exist_ok=True)
+        # Store yolo paths if needed by BatchImageProcessor, or pass to ImageProcessor
+        self.yolo_config_path = "yolov3.cfg"
+        self.yolo_weights_path = "yolov3.weights"
 
     def process_folder(self):
         for filename in os.listdir(self.input_folder):
@@ -581,6 +726,13 @@ class BatchImageProcessor:
 
                 # Pass the input path and the BASE output path to ImageProcessor
                 processor = ImageProcessor(input_path, output_base_path)
+                # Pass yolo paths to ImageProcessor instance if they were made instance attributes
+                # or if ImageProcessor's __init__ is updated to take them.
+                # For now, assuming ImageProcessor uses its defaults or finds them.
+                # If yolo_config and yolo_weights are global/fixed, this is fine.
+                # If they are configurable per batch run, ImageProcessor needs to know them.
+                processor.yolo_config_path = self.yolo_config_path
+                processor.yolo_weights_path = self.yolo_weights_path
                 processor.process_image() # process_image now handles the two saves internally
             else:
                  print(f"Skipping non-image file or directory: {filename}")
@@ -603,6 +755,20 @@ if __name__ == '__main__':
     output_dir = 'processed_images' # Folder for processed output images
     # --- End Configuration ---
 
+    # Check if Tesseract is available (pytesseract will raise TesseractNotFoundError if not)
+    try:
+        pytesseract.get_tesseract_version()
+        print(f"Tesseract OCR version {pytesseract.get_tesseract_version()} detected.")
+    except pytesseract.TesseractNotFoundError:
+        print("Error: Tesseract OCR is not installed or not found in your system's PATH.")
+        print("Text removal feature will not work. Please install Tesseract OCR.")
+        print("Installation guide: https://tesseract-ocr.github.io/tessdoc/Installation.html")
+        # Optionally, exit if Tesseract is critical, or continue with a warning
+        # exit() 
+    except Exception as e:
+        print(f"Could not verify Tesseract version: {e}")
+
+
     # Check if YOLO files exist
     if not os.path.exists(yolo_config) or not os.path.exists(yolo_weights):
          print(f"Error: YOLOv3 config ('{yolo_config}') or weights ('{yolo_weights}') not found.")
@@ -614,6 +780,9 @@ if __name__ == '__main__':
          exit()
 
     batch_processor = BatchImageProcessor(input_dir, output_dir)
+    # Pass yolo paths to BatchImageProcessor if they are configurable
+    batch_processor.yolo_config_path = yolo_config
+    batch_processor.yolo_weights_path = yolo_weights
     batch_processor.process_folder()
     print(f"\nProcessing complete. Processed images are in '{output_dir}' folder.")
     print("Look for files ending with '_bg_original.*' and '_bg_removed.*'")
