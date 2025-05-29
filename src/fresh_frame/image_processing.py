@@ -132,23 +132,8 @@ class ImageProcessor:
         gray_for_ocr = cv2.cvtColor(img_rgb_for_tesseract, cv2.COLOR_RGB2GRAY)
         
         # Apply adaptive thresholding
-        # Block size and C value might need tuning depending on image characteristics and text size
-        # A larger block size can help with uneven illumination.
-        # C is a constant subtracted from the mean or weighted sum.
         thresh_for_ocr = cv2.adaptiveThreshold(gray_for_ocr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                                cv2.THRESH_BINARY_INV, 11, 2) # block_size=11, C=2
-        # You might want to experiment with THRESH_BINARY instead of THRESH_BINARY_INV
-        # depending on whether text is darker or lighter than background.
-        # For Tesseract, typically white text on black background (THRESH_BINARY_INV if text is dark on light)
-        # or black text on white background (THRESH_BINARY if text is dark on light, then invert if needed by Tesseract)
-        # Tesseract generally prefers black text on a white background.
-        # If your original text is dark on a light background, THRESH_BINARY will make text black, background white.
-        # If original text is light on a dark background, THRESH_BINARY_INV will make text black, background white.
-        # Let's assume text is darker than its immediate background, so THRESH_BINARY is a good start.
-        # If Tesseract expects black text on white, and adaptiveThreshold gives white text on black, invert it.
-        # if np.mean(thresh_for_ocr) < 128: # Heuristic: if mostly black, text was likely light
-        #    thresh_for_ocr = cv2.bitwise_not(thresh_for_ocr)
-        # For simplicity, let's try one version first. Gaussian with INV is common.
 
         print(f"Using Tesseract config: '{tesseract_config}'")
         try:
