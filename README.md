@@ -19,7 +19,7 @@ This tool is designed to process and optimize images automatically
 1. **Download `yolov3.weights`**  
    Download the file from the [official YOLOv3 weights](https://github.com/patrick013/Object-Detection---Yolov3/blob/master/model/yolov3.weights) and place it in your project's **root directory**.
 
-2.**Install Tesseract OCR**
+2. **Install Tesseract OCR**
    ```bash
    sudo apt install tesseract-ocr
    ```
