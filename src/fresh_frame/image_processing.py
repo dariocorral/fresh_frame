@@ -508,7 +508,7 @@ class ImageProcessor:
             return None, False
 
 
-    def process_image(self, yolo_confidence_threshold=0.7, text_removal_confidence_threshold=50): # Added text_removal_confidence_threshold
+    def process_image(self, yolo_confidence_threshold=0.7, text_removal_confidence_threshold=50, perform_text_removal=True): # Added perform_text_removal
         if self.img_cv2 is None:
             print(f"Skipping processing for {self.image_path}: Image could not be loaded.")
             return
@@ -532,19 +532,21 @@ class ImageProcessor:
             self.auto_correct_lighting() # Modifies self.img_cv2
 
         # --- NEW: Text Removal ---
-        # Ensure img_cv2 is not None after auto_correct_lighting before proceeding
-        if self.img_cv2 is not None:
-            print("-- Attempting to remove text from image --")
-            # Try PSM 11 for sparse text, or 7 for a single line of text.
-            # You can also add other Tesseract configs here, e.g. '-c tessedit_char_whitelist=0123456789'
-            # if you only want to detect numbers.
-            tess_config = '--psm 11' 
-            self.remove_text_objects(
-                confidence_threshold=text_removal_confidence_threshold,
-                tesseract_config=tess_config
-            ) 
+        if perform_text_removal: # Conditional text removal
+            if self.img_cv2 is not None:
+                print("-- Attempting to remove text from image --")
+                # Try PSM 11 for sparse text, or 7 for a single line of text.
+                # You can also add other Tesseract configs here, e.g. '-c tessedit_char_whitelist=0123456789'
+                # if you only want to detect numbers.
+                tess_config = '--psm 11' 
+                self.remove_text_objects(
+                    confidence_threshold=text_removal_confidence_threshold,
+                    tesseract_config=tess_config
+                ) 
+            else:
+                print("Skipping text removal as image is None after lighting correction.")
         else:
-            print("Skipping text removal as image is None after lighting correction.")
+            print("Skipping text removal as per configuration.")
 
 
         # --- Quality Checks (Run AFTER Text Removal, BEFORE BG Removal or Cropping/Padding) ---
@@ -697,6 +699,7 @@ class BatchImageProcessor:
         # Store yolo paths if needed by BatchImageProcessor, or pass to ImageProcessor
         self.yolo_config_path = "yolov3.cfg"
         self.yolo_weights_path = "yolov3.weights"
+        self.perform_text_removal = True # Default, can be overridden
 
     def process_folder(self):
         for filename in os.listdir(self.input_folder):
@@ -718,7 +721,7 @@ class BatchImageProcessor:
                 # If they are configurable per batch run, ImageProcessor needs to know them.
                 processor.yolo_config_path = self.yolo_config_path
                 processor.yolo_weights_path = self.yolo_weights_path
-                processor.process_image() # process_image now handles the two saves internally
+                processor.process_image(perform_text_removal=self.perform_text_removal) # Pass the option
             else:
                  print(f"Skipping non-image file or directory: {filename}")
 
@@ -738,6 +741,7 @@ if __name__ == '__main__':
     yolo_weights = "yolov3.weights" # Path to YOLO weights file
     input_dir = 'input_images'     # Folder with input images
     output_dir = 'processed_images' # Folder for processed output images
+    enable_text_removal = True      # New configuration option for text removal
     # --- End Configuration ---
 
     # Check if Tesseract is available (pytesseract will raise TesseractNotFoundError if not)
@@ -768,6 +772,7 @@ if __name__ == '__main__':
     # Pass yolo paths to BatchImageProcessor if they are configurable
     batch_processor.yolo_config_path = yolo_config
     batch_processor.yolo_weights_path = yolo_weights
+    batch_processor.perform_text_removal = enable_text_removal # Set the option
     batch_processor.process_folder()
     print(f"\nProcessing complete. Processed images are in '{output_dir}' folder.")
     print("Look for files ending with '_bg_original.*' and '_bg_removed.*'")
