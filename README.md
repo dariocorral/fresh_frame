@@ -35,6 +35,10 @@ This tool is designed to process and optimize images automatically
    ```bash
    poetry run image_process
    ```
+   Run the process with `Text Removal` feature:
+   ```bash
+   poetry run image_process --enable-text-removal
+   ```
 
 5. **View results**  
    Processed images will be saved to the `processed_images` folder.
